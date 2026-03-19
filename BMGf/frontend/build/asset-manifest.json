@@ -1,0 +1,23 @@
+{
+  "files": {
+    "main.css": "/static/css/main.393cdc61.css",
+    "main.js": "/static/js/main.314a7303.js",
+    "static/media/recent_champions_footer.png": "/static/media/recent_champions_footer.2c32ac4199801a5db59c.png",
+    "static/media/carousel_3.png": "/static/media/carousel_3.d87676f40db8e94c4f66.png",
+    "static/media/carousel_1.png": "/static/media/carousel_1.1688b53f556cd7c9992c.png",
+    "static/media/carousel_4.png": "/static/media/carousel_4.9ea1f2430fb9adbd9256.png",
+    "static/media/login_bg.png": "/static/media/login_bg.2a02a078c7a7dfe82afe.png",
+    "static/media/carousel_2.png": "/static/media/carousel_2.3a66f022ded9cd684f85.png",
+    "static/media/signUp_bg.png": "/static/media/signUp_bg.25b6d01023459a659c13.png",
+    "static/media/moon.png": "/static/media/moon.cfa37b178f3890f6d652.png",
+    "static/media/slick.svg": "/static/media/slick.2630a3e3eab21c607e21.svg",
+    "static/media/slick.eot": "/static/media/slick.a4e97f5a2a64f0ab1323.eot",
+    "static/media/slick.ttf": "/static/media/slick.c94f7671dcc99dce43e2.ttf",
+    "static/media/slick.woff": "/static/media/slick.295183786cd8a1389865.woff",
+    "index.html": "/index.html"
+  },
+  "entrypoints": [
+    "static/css/main.393cdc61.css",
+    "static/js/main.314a7303.js"
+  ]
+}

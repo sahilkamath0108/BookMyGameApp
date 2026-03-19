@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  @apply transition-colors duration-200;
+}
+/* src/index.css or src/App.css */
+@import '~slick-carousel/slick/slick.css';
+@import '~slick-carousel/slick/slick-theme.css';
+@import 'react-datepicker/dist/react-datepicker.css';
+
+
+:root {
+  --autofill-text-color: #000; /* Default for light */
+}
+
+.dark {
+  --autofill-text-color: #fff; /* Override in dark mode */
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: var(--autofill-text-color) !important;
+  transition: background-color 5000s ease-in-out 0s;
+  box-shadow: 0 0 0px 1000px transparent inset !important;
+  background-color: transparent !important;
+}
+
+/* For Firefox */
+input:-moz-autofill,
+input:-moz-autofill:focus {
+  background-color: transparent !important;
+  color: var(--autofill-text-color) !important;
+}
