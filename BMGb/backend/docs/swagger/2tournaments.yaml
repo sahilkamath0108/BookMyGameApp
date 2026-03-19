@@ -1,0 +1,455 @@
+components:
+  schemas:
+    Tournament:
+      type: object
+      required:
+        - tournament_Name
+        - Registration_Amount
+        - Currency
+        - Registration_Start_Time
+        - Registration_End_Time
+        - Event_Start_Time
+        - Event_End_Time
+        - GameName
+        - Team_Size_Limit
+        - Max_Players_Allowed
+        - Min_Players_Required
+      properties:
+        tournament_id:
+          type: string
+          format: uuid
+        tournament_Name:
+          type: string
+        Is_Private:
+          type: boolean
+          default: false
+        Is_Sponsored:
+          type: boolean
+          default: false
+        Tournament_Code:
+          type: string
+        Registration_Amount:
+          type: number
+          format: decimal
+        Currency:
+          type: string
+          enum: [USD, INR]
+        Registration_Start_Time:
+          type: string
+          format: date-time
+        Registration_End_Time:
+          type: string
+          format: date-time
+        Event_Start_Time:
+          type: string
+          format: date-time
+        Event_End_Time:
+          type: string
+          format: date-time
+        Status:
+          type: string
+          enum: [Coming Soon, Accepting Registrations, Registrations Closed, In Progress, Ended]
+          default: Coming Soon
+        GameName:
+          type: string
+          enum: [CallOfDuty, PUBG, BGMI, FIFA, Valorant, OverWatch]
+        Payout_Structure:
+          type: object
+        Team_Size_Limit:
+          type: integer
+          minimum: 1
+        Max_Players_Allowed:
+          type: integer
+          minimum: 2
+        Min_Players_Required:
+          type: integer
+          minimum: 2
+        Room_Code:
+          type: string
+        Room_Password:
+          type: string
+        Tournament_Prize_Pool:
+          type: string
+          enum: [Dynamic, Fixed]
+        Is_Offline:
+          type: boolean
+        Prize_Amount:
+          type: integer
+        Include_Organizer_Fee:
+          type: boolean
+        Include_Platform_Fee:
+          type: boolean
+        Platform_fee:
+          type: number
+          format: decimal
+        Organizer_fee:
+          type: number
+          format: decimal
+        Is_Bracket_Competition:
+          type: boolean
+
+    TournamentUpdateRequest:
+      type: object
+      properties:
+        tournament_Name:
+          type: string
+        Is_Private:
+          type: boolean
+        Is_Sponsored:
+          type: boolean
+        Registration_Amount:
+          type: number
+          format: decimal
+        Currency:
+          type: string
+          enum: [USD, INR]
+        Registration_Start_Time:
+          type: string
+          format: date-time
+        Registration_End_Time:
+          type: string
+          format: date-time
+        Event_Start_Time:
+          type: string
+          format: date-time
+        Event_End_Time:
+          type: string
+          format: date-time
+        GameName:
+          type: string
+          enum: [CallOfDuty, PUBG, BGMI, FIFA, Valorant, OverWatch]
+        Payout_Structure:
+          type: object
+        Team_Size_Limit:
+          type: integer
+          minimum: 1
+        Max_Players_Allowed:
+          type: integer
+          minimum: 2
+        Min_Players_Required:
+          type: integer
+          minimum: 2
+        Room_Code:
+          type: string
+        Room_Password:
+          type: string
+        Tournament_Prize_Pool:
+          type: string
+          enum: [Dynamic, Fixed]
+        Is_Offline:
+          type: boolean
+        Prize_Amount:
+          type: integer
+        Include_Organizer_Fee:
+          type: boolean
+        Include_Platform_Fee:
+          type: boolean
+        Platform_fee:
+          type: number
+          format: decimal
+        Organizer_fee:
+          type: number
+          format: decimal
+        Is_Bracket_Competition:
+          type: boolean
+
+    TournamentTeam:
+      type: object
+      properties:
+        Team_id:
+          type: string
+          format: uuid
+        Tournament_Id:
+          type: string
+          format: uuid
+        Team_Number:
+          type: integer
+        team_members:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              leader:
+                type: boolean
+        Team_Password:
+          type: string
+
+    CreateTeamRequest:
+      type: object
+      properties:
+        teamPassword:
+          type: string
+
+    JoinTeamRequest:
+      type: object
+      required:
+        - teamPassword
+      properties:
+        teamPassword:
+          type: string
+
+paths:
+  /api/tournaments/search:
+    get:
+      tags: [Tournaments]
+      summary: Search tournaments
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: gameName
+          schema:
+            type: string
+        - in: query
+          name: isPrivate
+          schema:
+            type: boolean
+        - in: query
+          name: minPrize
+          schema:
+            type: number
+        - in: query
+          name: maxPrize
+          schema:
+            type: number
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+        - in: query
+          name: startDate
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: endDate
+          schema:
+            type: string
+            format: date-time
+      responses:
+        200:
+          description: Search results retrieved successfully
+        400:
+          description: Invalid parameters
+
+  /api/tournaments/upcoming:
+    get:
+      tags: [Tournaments]
+      summary: Get upcoming tournaments
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 5
+      responses:
+        200:
+          description: Upcoming tournaments retrieved successfully
+        500:
+          description: Server error
+
+  /api/tournaments/{tournamentId}:
+    get:
+      tags: [Tournaments]
+      summary: Get tournament details
+      parameters:
+        - in: path
+          name: tournamentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Tournament details retrieved successfully
+        404:
+          description: Tournament not found
+    patch:
+      tags: [Tournaments]
+      summary: Update tournament details
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: tournamentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TournamentUpdateRequest'
+      responses:
+        200:
+          description: Tournament updated successfully
+        400:
+          description: Invalid input or cannot update tournament that has started
+        401:
+          description: Not authorized
+        403:
+          description: Only tournament admins can update tournament details
+        404:
+          description: Tournament not found
+        500:
+          description: Server error
+    delete:
+      tags: [Tournaments]
+      summary: Delete tournament
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: tournamentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Tournament deleted successfully
+        401:
+          description: Not authorized
+        404:
+          description: Tournament not found
+
+  /api/tournaments/create:
+    post:
+      tags: [Tournaments]
+      summary: Create a new tournament
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Tournament'
+      responses:
+        201:
+          description: Tournament created successfully
+        400:
+          description: Invalid input
+        401:
+          description: Not authorized
+
+  /api/tournaments/{tournamentId}/status:
+    patch:
+      tags: [Tournaments]
+      summary: Update tournament status
+      parameters:
+        - in: path
+          name: tournamentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [Accepting Registrations, Registrations Closed, In Progress, Ended]
+      responses:
+        200:
+          description: Tournament status updated successfully
+        400:
+          description: Invalid status transition
+        401:
+          description: Not authorized
+        404:
+          description: Tournament not found
+
+  /api/tournaments/{tournamentId}/team:
+    post:
+      tags: [Tournament Teams]
+      summary: Create a new team
+      parameters:
+        - in: path
+          name: tournamentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTeamRequest'
+      responses:
+        201:
+          description: Team created successfully
+        400:
+          description: Invalid input or tournament not accepting registrations
+        401:
+          description: Not authorized
+        409:
+          description: User already in a team
+
+  /api/tournaments/{tournamentId}/team/join:
+    post:
+      tags: [Tournament Teams]
+      summary: Join an existing team
+      parameters:
+        - in: path
+          name: tournamentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinTeamRequest'
+      responses:
+        200:
+          description: Successfully joined the team
+        400:
+          description: Invalid password or team is full
+        401:
+          description: Not authorized
+        404:
+          description: Tournament or team not found
+        409:
+          description: User already in a team
+
+  /api/tournaments/{tournamentId}/join:
+    post:
+      tags: [Tournaments]
+      summary: Join a single player tournament
+      parameters:
+        - in: path
+          name: tournamentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Successfully joined the tournament
+        400:
+          description: Tournament not found, not accepting registrations, not a single player tournament, user already registered, or tournament is full
+        401:
+          description: Not authorized
+        500:
+          description: Server error

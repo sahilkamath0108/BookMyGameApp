@@ -1,0 +1,421 @@
+components:
+  schemas:
+    TournamentPost:
+      type: object
+      required:
+        - Tournament_Id
+        - Content
+      properties:
+        Post_id:
+          type: string
+          format: uuid
+        Author_id:
+          type: string
+          format: uuid
+        Content:
+          type: string
+          description: Content stored in markdown format
+        Tournament_Id:
+          type: string
+          format: uuid
+        UpVotes:
+          type: integer
+          default: 0
+        DownVotes:
+          type: integer
+          default: 0
+        Is_Sponsored_Post:
+          type: boolean
+          default: false
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        vote_score:
+          type: integer
+          description: Calculated as (UpVotes - DownVotes)
+
+    TournamentPostComment:
+      type: object
+      required:
+        - Post_Id
+        - Content
+      properties:
+        Comment_id:
+          type: string
+          format: uuid
+        Post_Id:
+          type: string
+          format: uuid
+        Parent_Comment_Id:
+          type: string
+          format: uuid
+        Is_Reply:
+          type: boolean
+          default: false
+        Content:
+          type: string
+        Author_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreatePostRequest:
+      type: object
+      required:
+        - Tournament_Id
+        - Content
+      properties:
+        Tournament_Id:
+          type: string
+          format: uuid
+        Content:
+          type: string
+        Is_Sponsored_Post:
+          type: boolean
+          default: false
+
+    CreateCommentRequest:
+      type: object
+      required:
+        - Post_Id
+        - Content
+      properties:
+        Post_Id:
+          type: string
+          format: uuid
+        Content:
+          type: string
+        Parent_Comment_Id:
+          type: string
+          format: uuid
+          description: Required only for replies
+
+    VoteRequest:
+      type: object
+      required:
+        - vote
+      properties:
+        vote:
+          type: string
+          enum: [upvote, downvote, remove]
+
+paths:
+  /api/tournament-posts/create:
+    post:
+      tags: [Tournament Posts]
+      summary: Create a new tournament post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostRequest'
+      responses:
+        201:
+          description: Post created successfully
+        400:
+          description: Invalid input
+        401:
+          description: Not authorized
+        404:
+          description: Tournament not found
+
+  /api/tournament-posts/tournament/{tournamentId}:
+    get:
+      tags: [Tournament Posts]
+      summary: Get all posts for a tournament
+      parameters:
+        - in: path
+          name: tournamentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [latest, trending]
+            default: latest
+      responses:
+        200:
+          description: Posts retrieved successfully
+        400:
+          description: Invalid parameters
+        404:
+          description: Tournament not found
+
+  /api/tournament-posts/tournament/{tournamentId}/trending:
+    get:
+      tags: [Tournament Posts]
+      summary: Get trending posts for a tournament
+      parameters:
+        - in: path
+          name: tournamentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+      responses:
+        200:
+          description: Trending posts retrieved successfully
+        400:
+          description: Invalid parameters
+        404:
+          description: Tournament not found
+
+  /api/tournament-posts/{postId}:
+    get:
+      tags: [Tournament Posts]
+      summary: Get a specific post with comments
+      parameters:
+        - in: path
+          name: postId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Post retrieved successfully
+        400:
+          description: Invalid parameters
+        404:
+          description: Post not found
+
+    patch:
+      tags: [Tournament Posts]
+      summary: Update a post
+      parameters:
+        - in: path
+          name: postId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                Content:
+                  type: string
+                Is_Sponsored_Post:
+                  type: boolean
+      responses:
+        200:
+          description: Post updated successfully
+        400:
+          description: Invalid parameters
+        401:
+          description: Not authorized
+        403:
+          description: Forbidden - Not the author
+        404:
+          description: Post not found
+
+    delete:
+      tags: [Tournament Posts]
+      summary: Delete a post
+      parameters:
+        - in: path
+          name: postId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Post deleted successfully
+        400:
+          description: Invalid parameters
+        401:
+          description: Not authorized
+        403:
+          description: Forbidden - Not the author or admin
+        404:
+          description: Post not found
+
+  /api/tournament-posts/{postId}/vote:
+    post:
+      tags: [Tournament Posts]
+      summary: Vote on a post
+      parameters:
+        - in: path
+          name: postId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoteRequest'
+      responses:
+        200:
+          description: Vote recorded successfully
+        400:
+          description: Invalid parameters
+        401:
+          description: Not authorized
+        404:
+          description: Post not found
+
+  /api/tournament-posts/comment:
+    post:
+      tags: [Tournament Post Comments]
+      summary: Create a new comment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCommentRequest'
+      responses:
+        201:
+          description: Comment created successfully
+        400:
+          description: Invalid input
+        401:
+          description: Not authorized
+        404:
+          description: Post or parent comment not found
+
+  /api/tournament-posts/{postId}/comments:
+    get:
+      tags: [Tournament Post Comments]
+      summary: Get all comments for a post
+      parameters:
+        - in: path
+          name: postId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Comments retrieved successfully
+        400:
+          description: Invalid parameters
+        404:
+          description: Post not found
+
+  /api/tournament-posts/comment/{commentId}:
+    get:
+      tags: [Tournament Post Comments]
+      summary: Get a specific comment
+      parameters:
+        - in: path
+          name: commentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Comment retrieved successfully
+        400:
+          description: Invalid parameters
+        404:
+          description: Comment not found
+
+    patch:
+      tags: [Tournament Post Comments]
+      summary: Update a comment
+      parameters:
+        - in: path
+          name: commentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - Content
+              properties:
+                Content:
+                  type: string
+      responses:
+        200:
+          description: Comment updated successfully
+        400:
+          description: Invalid parameters
+        401:
+          description: Not authorized
+        403:
+          description: Forbidden - Not the author
+        404:
+          description: Comment not found
+
+    delete:
+      tags: [Tournament Post Comments]
+      summary: Delete a comment
+      parameters:
+        - in: path
+          name: commentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Comment deleted successfully
+        400:
+          description: Invalid parameters
+        401:
+          description: Not authorized
+        403:
+          description: Forbidden - Not the author or admin
+        404:
+          description: Comment not found
+
+  /api/tournament-posts/comment/{commentId}/replies:
+    get:
+      tags: [Tournament Post Comments]
+      summary: Get all replies to a comment
+      parameters:
+        - in: path
+          name: commentId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Replies retrieved successfully
+        400:
+          description: Invalid parameters
+        404:
+          description: Comment not found 

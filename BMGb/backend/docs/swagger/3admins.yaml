@@ -1,0 +1,100 @@
+components:
+  schemas:
+    TempAdmin:
+      type: object
+      required:
+        - user_id
+        - associated_tournament_id
+        - start_time
+        - end_time
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        associated_tournament_id:
+          type: string
+          format: uuid
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        role:
+          type: string
+          enum: [super_admin, temp_admin]
+
+paths:
+  /api/super-admin/add-temp-admin:
+    post:
+      tags: [Super Admin]
+      summary: Add a temporary admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - tournament_id
+                - start_time
+                - end_time
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                tournament_id:
+                  type: string
+                  format: uuid
+                start_time:
+                  type: string
+                  format: date-time
+                end_time:
+                  type: string
+                  format: date-time
+      responses:
+        201:
+          description: Temporary admin added successfully
+        400:
+          description: Invalid input
+        401:
+          description: Not authorized
+        403:
+          description: Only super admins can add temporary admins
+        404:
+          description: User or tournament not found
+        409:
+          description: User is already an admin for this tournament
+
+  /api/super-admin/remove-temp-admin:
+    delete:
+      tags: [Super Admin]
+      summary: Remove a temporary admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - tournament_id
+              properties:
+                user_id:
+                  type: string
+                  format: uuid
+                tournament_id:
+                  type: string
+                  format: uuid
+      responses:
+        200:
+          description: Temporary admin removed successfully
+        400:
+          description: Invalid input
+        401:
+          description: Not authorized
+        403:
+          description: Only super admins can remove temporary admins
+        404:
+          description: Admin record not found 
