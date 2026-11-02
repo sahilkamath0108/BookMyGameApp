@@ -74,7 +74,29 @@ const requireSuperAdmin = async (req, res, next) => {
     }
 };
 
+/**
+ * Middleware for platform-level actions, which a tournament's own admins must not
+ * be able to perform. Access comes from PLATFORM_ADMIN_USER_IDS, a comma-separated
+ * list of user ids. If it is unset, nobody has access.
+ */
+const requirePlatformAdmin = (req, res, next) => {
+    const adminIds = (process.env.PLATFORM_ADMIN_USER_IDS || '')
+        .split(',')
+        .map(id => id.trim())
+        .filter(Boolean);
+
+    if (!req.user || !adminIds.includes(req.user.user_id)) {
+        return res.status(403).json({
+            status: 'fail',
+            message: 'Access denied. Platform admin privileges required.'
+        });
+    }
+
+    next();
+};
+
 module.exports = {
     authenticate,
-    requireSuperAdmin
+    requireSuperAdmin,
+    requirePlatformAdmin
 }; 
