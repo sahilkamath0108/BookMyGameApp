@@ -25,6 +25,27 @@ const {
 } = require("../utils/emailService");
 const { uploadToS3, deleteFromS3, getKeyFromUrl, getPresignedUrl } = require('../utils/s3Service');
 
+// A paid session only proves payment for the user and tournament it was created for.
+const sessionMatchesReservation = (session, userId, tournamentId) =>
+  session.metadata?.user_id === userId &&
+  session.metadata?.tournament_id === tournamentId;
+
+// A session that already confirmed a registration cannot pay for another one.
+const isSessionAlreadyUsed = async (sessionId, userId, tournamentId, transaction) => {
+  const completedPayment = await TournamentPayment.findOne({
+    where: {
+      user_id: userId,
+      tournament_id: tournamentId,
+      payment_details: {
+        session_id: sessionId,
+        status: 'completed'
+      }
+    },
+    transaction
+  });
+  return Boolean(completedPayment);
+};
+
 // Create tournament
 const createTournament = async (req, res) => {
   try {
@@ -1149,6 +1170,12 @@ const confirmSlotPayment = async (req, res) => {
         .json({ status: "fail", message: "Payment not completed" });
     }
 
+    if (!sessionMatchesReservation(session, userId, tournamentId)) {
+      return res
+        .status(403)
+        .json({ status: "fail", message: "This payment does not belong to this reservation" });
+    }
+
     // Start transaction
     const result = await sequelize.transaction(async (t) => {
       // 1. Find the team slot for this user
@@ -1183,6 +1210,14 @@ const confirmSlotPayment = async (req, res) => {
           error: true,
           statusCode: 404,
           message: "No pending reservation found for this user."
+        };
+      }
+
+      if (await isSessionAlreadyUsed(sessionId, userId, tournamentId, t)) {
+        return {
+          error: true,
+          statusCode: 409,
+          message: "This payment has already been used for a registration."
         };
       }
 
@@ -1915,6 +1950,12 @@ const confirmSinglePlayerSlot = async (req, res) => {
         .json({ status: "fail", message: "Payment not completed" });
     }
 
+    if (!sessionMatchesReservation(session, userId, tournamentId)) {
+      return res
+        .status(403)
+        .json({ status: "fail", message: "This payment does not belong to this reservation" });
+    }
+
     // Start transaction
     const result = await sequelize.transaction(async (t) => {
       // 1. Find the tournament to verify it still exists and is accepting registrations
@@ -1967,6 +2008,14 @@ const confirmSinglePlayerSlot = async (req, res) => {
           error: true,
           statusCode: 404,
           message: "No pending reservation found for this user."
+        };
+      }
+
+      if (await isSessionAlreadyUsed(sessionId, userId, tournamentId, t)) {
+        return {
+          error: true,
+          statusCode: 409,
+          message: "This payment has already been used for a registration."
         };
       }
 
