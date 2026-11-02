@@ -54,6 +54,81 @@ describe('POST /api/users/register', () => {
       .send({ ...payload, email: 'not-an-email' });
     expect(res.status).toBe(400);
   });
+
+  it('ignores fields clients may not set', async () => {
+    const chosenId = '00000000-0000-4000-8000-000000000000';
+
+    const res = await request(app)
+      .post('/api/users/register')
+      .send({
+        ...payload,
+        user_id: chosenId,
+        overall_gamer_rating: { skill: 9999 },
+        reset_otp: '123456'
+      });
+
+    expect(res.status).toBe(201);
+    const user = await User.findOne({ where: { email: payload.email } });
+    expect(user.user_id).not.toBe(chosenId);
+    expect(user.overall_gamer_rating).toEqual({});
+    expect(user.reset_otp).toBeNull();
+  });
+});
+
+describe('PATCH /api/users/profile', () => {
+  const update = (user, body) =>
+    request(app).patch('/api/users/profile').set('Authorization', bearer(user)).send(body);
+
+  const login = (user, password) =>
+    request(app).post('/api/users/login').send({ email: user.email, password });
+
+  it('updates name and gamer tags without changing the password', async () => {
+    const user = await createUser({ password: 'Password123!' });
+
+    const res = await update(user, { Name: 'New Name', GamerTag: { valorant: 'ace' } });
+
+    expect(res.status).toBe(200);
+    await user.reload();
+    expect(user.Name).toBe('New Name');
+    expect(user.GamerTag).toEqual({ valorant: 'ace' });
+    expect((await login(user, 'Password123!')).status).toBe(200);
+  });
+
+  it('hashes a new password, which then works for login', async () => {
+    const user = await createUser({ password: 'Password123!' });
+
+    const res = await update(user, { password: 'NewPassword456!' });
+
+    expect(res.status).toBe(200);
+    await user.reload();
+    expect(user.password).toMatch(/^\$2[aby]\$/);
+    expect((await login(user, 'NewPassword456!')).status).toBe(200);
+    expect((await login(user, 'Password123!')).status).toBe(401);
+  });
+
+  it('rejects an email change', async () => {
+    const user = await createUser();
+    const res = await update(user, { email: 'new@example.test' });
+    expect(res.status).toBe(400);
+  });
+
+  it('ignores fields clients may not set', async () => {
+    const user = await createUser();
+    const originalId = user.user_id;
+
+    const res = await update(user, {
+      user_id: '00000000-0000-4000-8000-000000000000',
+      overall_gamer_rating: { skill: 9999 },
+      reset_otp: '123456',
+      profile_pic: 'someone-elses-file.png'
+    });
+
+    expect(res.status).toBe(200);
+    const stored = await User.findByPk(originalId);
+    expect(stored.overall_gamer_rating).toEqual({});
+    expect(stored.reset_otp).toBeNull();
+    expect(stored.profile_pic).toBeNull();
+  });
 });
 
 describe('POST /api/users/login', () => {

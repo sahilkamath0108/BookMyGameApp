@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { sendOTPEmail, sendWelcomeEmail } = require('../utils/emailService');
 const { OAuth2Client } = require('google-auth-library');
 const { uploadToS3, deleteFromS3, getKeyFromUrl, getPresignedUrl } = require('../utils/s3Service');
+const { pickFields } = require('../utils/validation');
 
 // Initialize Google OAuth client with client ID and client secret
 const googleClient = new OAuth2Client(
@@ -18,7 +19,8 @@ const usedAuthCodes = new Map(); // Change to Map to store timestamp
 // Register new user
 const register = async (req, res) => {
     try {
-        const { password, ...userData } = req.body;
+        const { password } = req.body;
+        const userData = pickFields(req.body, ['Name', 'email', 'GamerTag']);
 
         // Check if email exists
         const existingUser = await User.findOne({ 
@@ -235,7 +237,8 @@ const getProfile = async (req, res) => {
 // Update profile
 const updateProfile = async (req, res) => {
     try {
-        const { email, password, profile_pic, ...updateData } = req.body;
+        const { email, password } = req.body;
+        const updateData = pickFields(req.body, ['Name', 'GamerTag']);
 
         // Don't allow email updates
         if (email) {
@@ -258,7 +261,9 @@ const updateProfile = async (req, res) => {
         //     const salt = await bcrypt.genSalt(10);
         //     updateData.password = await bcrypt.hash(password, salt);
         // }
-        updateData.password = password
+        if (password) {
+            updateData.password = password;
+        }
 
         await user.update(updateData);
 

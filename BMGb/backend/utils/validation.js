@@ -15,6 +15,23 @@ const validateUUID = (id) => {
   return uuidRegex.test(id);
 };
 
+/**
+ * Copy only the listed fields from a request body, so clients cannot set any others
+ * @param {object} source - The request body
+ * @param {string[]} fields - The fields clients may set
+ * @returns {object} - A new object with the fields present in source
+ */
+const pickFields = (source, fields) => {
+  const picked = {};
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      picked[field] = source[field];
+    }
+  }
+  return picked;
+};
+
 module.exports = {
-  validateUUID
+  validateUUID,
+  pickFields
 };

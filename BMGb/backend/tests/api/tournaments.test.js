@@ -67,6 +67,54 @@ describe('POST /api/tournaments/create', () => {
   });
 });
 
+describe('fields organizers may not set', () => {
+  const restricted = {
+    is_approved: true,
+    Platform_fee: '0.00',
+    Organizer_fee: '999.00',
+    tournament_banners: ['someone-elses-file.png'],
+    main_banner_key: 'someone-elses-file.png'
+  };
+
+  function expectRestrictedFieldsUnset(tournament) {
+    expect(tournament.is_approved).toBe(false);
+    expect(tournament.Platform_fee).toBeNull();
+    expect(tournament.Organizer_fee).toBeNull();
+    expect(tournament.tournament_banners).toEqual([]);
+    expect(tournament.main_banner_key).toBeNull();
+  }
+
+  it('ignores them on create, and records the real creator', async () => {
+    const creator = await createUser();
+    const other = await createUser();
+
+    const res = await createViaApi(creator, { ...restricted, listed_by: other.user_id });
+
+    expect(res.status).toBe(201);
+    const tournament = await Tournament.findOne();
+    expectRestrictedFieldsUnset(tournament);
+    expect(tournament.listed_by).toBe(creator.user_id);
+  });
+
+  it('ignores them on update, while applying allowed fields', async () => {
+    const creator = await createUser();
+    const other = await createUser();
+    await createViaApi(creator);
+    const tournament = await Tournament.findOne();
+
+    const res = await request(app)
+      .patch(`/api/tournaments/${tournament.tournament_id}`)
+      .set('Authorization', bearer(creator))
+      .send({ ...restricted, listed_by: other.user_id, tournament_Name: 'Renamed' });
+
+    expect(res.status).toBe(200);
+    await tournament.reload();
+    expectRestrictedFieldsUnset(tournament);
+    expect(tournament.listed_by).toBe(creator.user_id);
+    expect(tournament.tournament_Name).toBe('Renamed');
+  });
+});
+
 describe('PATCH /api/tournaments/:id/status', () => {
   const setStatus = (user, id, status) =>
     request(app)
