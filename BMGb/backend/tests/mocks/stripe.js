@@ -9,7 +9,8 @@ const client = {
   checkout: {
     sessions: {
       create: jest.fn(),
-      retrieve: jest.fn()
+      retrieve: jest.fn(),
+      expire: jest.fn()
     }
   }
 };
@@ -18,6 +19,7 @@ function reset() {
   sessions.clear();
   client.checkout.sessions.create.mockReset();
   client.checkout.sessions.retrieve.mockReset();
+  client.checkout.sessions.expire.mockReset();
 
   client.checkout.sessions.create.mockImplementation(async (params) => {
     const id = `cs_test_${nextId++}`;
@@ -25,6 +27,7 @@ function reset() {
       id,
       url: `https://checkout.stripe.test/${id}`,
       payment_intent: null,
+      status: 'open',
       payment_status: 'unpaid',
       metadata: params.metadata
     };
@@ -39,6 +42,16 @@ function reset() {
     }
     return session;
   });
+
+  // As in real Stripe, only an open session can be expired.
+  client.checkout.sessions.expire.mockImplementation(async (id) => {
+    const session = sessions.get(id);
+    if (!session || session.status !== 'open') {
+      throw new Error(`Only open sessions can be expired: ${id}`);
+    }
+    session.status = 'expired';
+    return session;
+  });
 }
 
 function markSessionPaid(id) {
@@ -46,6 +59,10 @@ function markSessionPaid(id) {
   if (!session) {
     throw new Error(`Unknown session in test: ${id}`);
   }
+  if (session.status !== 'open') {
+    throw new Error(`Only open sessions can be paid: ${id}`);
+  }
+  session.status = 'complete';
   session.payment_status = 'paid';
   session.payment_intent = `pi_${id}`;
 }
