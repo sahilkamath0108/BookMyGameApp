@@ -6,7 +6,10 @@
   "scripts": {
     "start": "nodemon server.js",
     "dev": "nodemon server.js",
-    "test": "jest"
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:db:up": "docker compose -f docker-compose.test.yml up -d --wait",
+    "test:db:down": "docker compose -f docker-compose.test.yml down"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.825.0",
