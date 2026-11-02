@@ -16,7 +16,8 @@ const sequelize = new Sequelize(
       acquire: 30000,
       idle: 10000
     },
-    dialectOptions: {
+    // SSL stays on unless explicitly disabled; a local test database has no SSL.
+    dialectOptions: process.env.DB_SSL === 'false' ? {} : {
       ssl: {
         require: true,
         rejectUnauthorized: false
