@@ -1,5 +1,6 @@
 const { TournamentPostComment, TournamentPost, User } = require('../models');
 const { validateUUID } = require('../utils/validation');
+const { isPlatformAdmin } = require('../middleware/auth');
 const { Op } = require('sequelize');
 
 // Create a comment
@@ -298,7 +299,7 @@ const deleteComment = async (req, res) => {
     }
 
     // Check if user is the author or admin
-    if (comment.Author_id !== userId && req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+    if (comment.Author_id !== userId && !isPlatformAdmin(req.user)) {
       return res.status(403).json({
         status: 'error',
         message: 'Not authorized to delete this comment'

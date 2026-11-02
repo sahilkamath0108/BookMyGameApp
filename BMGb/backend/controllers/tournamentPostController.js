@@ -3,6 +3,7 @@ const { validateUUID } = require('../utils/validation');
 const { Op } = require('sequelize');
 const { sequelize } = require('../config/database');
 const { uploadToS3, deleteFromS3, getPresignedUrl, getKeyFromUrl } = require('../utils/s3Service');
+const { isPlatformAdmin } = require('../middleware/auth');
 
 // Create a tournament post
 const createPost = async (req, res) => {
@@ -555,7 +556,7 @@ const updatePost = async (req, res) => {
     });
     
     // If user is not the author and not an admin, deny access
-    if (!isAuthor && !isAdmin && req.user.role !== 'superadmin') {
+    if (!isAuthor && !isAdmin && !isPlatformAdmin(req.user)) {
       return res.status(403).json({
         status: 'error',
         message: 'Not authorized to update this post'
@@ -747,7 +748,7 @@ const deletePost = async (req, res) => {
     });
     
     // If user is not the author and not an admin, deny access
-    if (!isAuthor && !isAdmin && req.user.role !== 'superadmin') {
+    if (!isAuthor && !isAdmin && !isPlatformAdmin(req.user)) {
       return res.status(403).json({
         status: 'error',
         message: 'Not authorized to delete this post'
