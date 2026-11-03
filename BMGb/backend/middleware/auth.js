@@ -47,34 +47,32 @@ const authenticate = async (req, res, next) => {
 };
 
 /**
- * Middleware to check if user is a super admin
- * This checks if the user's role is 'superadmin'
+ * Platform admins can perform actions a tournament's own admins must not. Access
+ * comes from PLATFORM_ADMIN_USER_IDS, a comma-separated list of user ids. If it is
+ * unset, nobody has access.
  */
-const requireSuperAdmin = async (req, res, next) => {
-    try {
-        // User should already be authenticated
-        if (!req.user) {
-            return res.status(401).json({
-                status: 'fail',
-                message: 'Authentication required'
-            });
-        }
-        
-        // Check if user has superadmin role
-        if (req.user.role !== 'superadmin') {
-            return res.status(403).json({
-                status: 'fail',
-                message: 'Access denied. Super admin privileges required.'
-            });
-        }
-        
-        next();
-    } catch (error) {
-        next(error);
+const isPlatformAdmin = (user) => {
+    const adminIds = (process.env.PLATFORM_ADMIN_USER_IDS || '')
+        .split(',')
+        .map(id => id.trim())
+        .filter(Boolean);
+
+    return Boolean(user) && adminIds.includes(user.user_id);
+};
+
+const requirePlatformAdmin = (req, res, next) => {
+    if (!isPlatformAdmin(req.user)) {
+        return res.status(403).json({
+            status: 'fail',
+            message: 'Access denied. Platform admin privileges required.'
+        });
     }
+
+    next();
 };
 
 module.exports = {
     authenticate,
-    requireSuperAdmin
+    isPlatformAdmin,
+    requirePlatformAdmin
 }; 

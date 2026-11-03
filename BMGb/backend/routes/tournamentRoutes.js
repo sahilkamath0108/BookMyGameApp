@@ -26,7 +26,7 @@ const {
     getPrivateTournamentByCode,
     deleteMainBanner
 } = require('../controllers/tournamentController');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requirePlatformAdmin } = require('../middleware/auth');
 const { uploadSingle, uploadMultiple, handleMulterError } = require('../middleware/upload');
 
 // Get all tournaments for the current user
@@ -65,7 +65,7 @@ router.post('/:tournamentId/player2', authenticate, confirmSinglePlayerSlot); //
 router.delete('/:tournamentId/player/cancel', authenticate, cancelSinglePlayerReservation); // NEW: Cancel player reservation
 
 // Tournament approval routes
-router.patch('/:tournamentId/approve', authenticate, approveTournament);
+router.patch('/:tournamentId/approve', authenticate, requirePlatformAdmin, approveTournament);
 
 // Tournament banner routes
 router.post('/:tournamentId/banners', authenticate, uploadMultiple('banners', 5), handleMulterError, uploadTournamentBanners);

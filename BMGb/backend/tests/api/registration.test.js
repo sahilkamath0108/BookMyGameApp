@@ -184,20 +184,39 @@ describe('solo registration: confirm (player2)', () => {
     expect(await TournamentPayment.count()).toBe(1);
   });
 
-  it('returns 404 for a user with no reservation', async () => {
-    const { tournament, sessionId } = await reserved();
-    const stranger = await createUser();
+  it('returns 404 when the reservation no longer exists', async () => {
+    const { user, tournament, sessionId } = await reserved();
     stripeMock.markSessionPaid(sessionId);
+    await TournamentParticipant.destroy({ where: { user_id: user.user_id } });
+    await TournamentTeam.update(
+      { team_members: [] },
+      { where: { Tournament_Id: tournament.tournament_id } }
+    );
 
-    const res = await confirmPlayer(stranger, tournament.tournament_id, sessionId);
+    const res = await confirmPlayer(user, tournament.tournament_id, sessionId);
 
     expect(res.status).toBe(404);
   });
 
-  // KNOWN BUG: confirm checks payment_status but never session.metadata, so a paid
-  // session for one tournament can confirm a reservation in another.
-  // it.failing goes red once the bug is fixed; then change it to a plain it().
-  it.failing('rejects a paid session that belongs to a different tournament', async () => {
+  it('rejects a session that already paid for an earlier registration', async () => {
+    const { user, tournament, sessionId } = await reserved();
+    stripeMock.markSessionPaid(sessionId);
+    await confirmPlayer(user, tournament.tournament_id, sessionId);
+    // Simulates the user being removed from the tournament, then reserving again.
+    await TournamentParticipant.destroy({ where: { user_id: user.user_id } });
+    await TournamentTeam.update(
+      { team_members: [] },
+      { where: { Tournament_Id: tournament.tournament_id } }
+    );
+    await reservePlayer(user, tournament.tournament_id);
+
+    const res = await confirmPlayer(user, tournament.tournament_id, sessionId);
+
+    expect(res.status).toBe(409);
+    expect((await participantOf(user, tournament)).participation_status).toBe('pending');
+  });
+
+  it('rejects a paid session that belongs to a different tournament', async () => {
     const user = await createUser();
     const cheap = await createTournament({ Registration_Amount: '1.00' });
     const expensive = await createTournament({ Registration_Amount: '500.00' });
@@ -206,13 +225,13 @@ describe('solo registration: confirm (player2)', () => {
     await reservePlayer(user, expensive.tournament_id);
     stripeMock.markSessionPaid(cheapRes.body.data.session_id);
 
-    await confirmPlayer(user, expensive.tournament_id, cheapRes.body.data.session_id);
+    const res = await confirmPlayer(user, expensive.tournament_id, cheapRes.body.data.session_id);
 
+    expect(res.status).toBe(403);
     expect((await participantOf(user, expensive)).participation_status).toBe('pending');
   });
 
-  // KNOWN BUG: same missing check, across users.
-  it.failing("rejects another user's paid session", async () => {
+  it("rejects another user's paid session", async () => {
     const [payer, freeloader] = await createUsers(2);
     const tournament = await createTournament();
 
@@ -220,8 +239,9 @@ describe('solo registration: confirm (player2)', () => {
     await reservePlayer(freeloader, tournament.tournament_id);
     stripeMock.markSessionPaid(paid.body.data.session_id);
 
-    await confirmPlayer(freeloader, tournament.tournament_id, paid.body.data.session_id);
+    const res = await confirmPlayer(freeloader, tournament.tournament_id, paid.body.data.session_id);
 
+    expect(res.status).toBe(403);
     expect((await participantOf(freeloader, tournament)).participation_status).toBe('pending');
   });
 });
@@ -264,6 +284,80 @@ describe('solo registration: cancel', () => {
       .set('Authorization', bearer(user));
 
     expect(res.status).toBe(404);
+  });
+
+  describe('Stripe sessions and paid registrations', () => {
+    const cancel = (user, tournament) =>
+      request(app)
+        .delete(`/api/tournaments/${tournament.tournament_id}/player/cancel`)
+        .set('Authorization', bearer(user));
+
+    async function reserved() {
+      const user = await createUser();
+      const tournament = await createTournament();
+      const res = await reservePlayer(user, tournament.tournament_id);
+      return { user, tournament, sessionId: res.body.data.session_id };
+    }
+
+    it('expires the session, so a canceled slot cannot be paid for', async () => {
+      const { user, tournament, sessionId } = await reserved();
+
+      await cancel(user, tournament);
+
+      expect(stripeMock.client.checkout.sessions.expire).toHaveBeenCalledWith(sessionId);
+      expect(() => stripeMock.markSessionPaid(sessionId)).toThrow(/Only open sessions/);
+    });
+
+    it('refuses to cancel a paid session, and confirm still works', async () => {
+      const { user, tournament, sessionId } = await reserved();
+      stripeMock.markSessionPaid(sessionId);
+
+      const res = await cancel(user, tournament);
+
+      expect(res.status).toBe(409);
+      expect(await occupiedSlots(tournament.tournament_id)).toHaveLength(1);
+
+      const confirmed = await confirmPlayer(user, tournament.tournament_id, sessionId);
+      expect(confirmed.status).toBe(200);
+    });
+
+    it.each(['retrieve', 'expire'])(
+      'keeps the reservation and returns 503 when Stripe %s fails',
+      async (method) => {
+        const { user, tournament } = await reserved();
+        stripeMock.client.checkout.sessions[method].mockRejectedValueOnce(new Error('Stripe is down'));
+
+        const res = await cancel(user, tournament);
+
+        expect(res.status).toBe(503);
+        expect(await occupiedSlots(tournament.tournament_id)).toHaveLength(1);
+        expect((await participantOf(user, tournament)).participation_status).toBe('pending');
+        expect((await TournamentPayment.findOne()).payment_details.status).toBe('pending');
+      }
+    );
+
+    it('refuses to cancel a confirmed registration', async () => {
+      const { user, tournament, sessionId } = await reserved();
+      stripeMock.markSessionPaid(sessionId);
+      await confirmPlayer(user, tournament.tournament_id, sessionId);
+
+      const res = await cancel(user, tournament);
+
+      expect(res.status).toBe(409);
+      expect(await occupiedSlots(tournament.tournament_id)).toHaveLength(1);
+      expect((await participantOf(user, tournament)).participation_status).toBe('confirmed');
+    });
+
+    it('refuses to empty a team through the solo endpoint', async () => {
+      const leader = await createUser();
+      const tournament = await createTournament({ Team_Size_Limit: 2, Max_Players_Allowed: 2 });
+      await reserveTeam(leader, tournament.tournament_id);
+
+      const res = await cancel(leader, tournament);
+
+      expect(res.status).toBe(400);
+      expect(await occupiedSlots(tournament.tournament_id)).toHaveLength(1);
+    });
   });
 });
 
@@ -322,6 +416,124 @@ describe('team registration', () => {
     expect(paid.status).toBe(200);
     expect((await participantOf(leader, tournament)).participation_status).toBe('confirmed');
     expect((await TournamentPayment.findOne()).payment_details.status).toBe('completed');
+  });
+
+  it("rejects another user's paid session when confirming a team", async () => {
+    const [payer, freeloader] = await createUsers(2);
+    const tournament = await teamTournament();
+    const paid = await reserveTeam(payer, tournament.tournament_id);
+    await reserveTeam(freeloader, tournament.tournament_id);
+    stripeMock.markSessionPaid(paid.body.data.session_id);
+
+    const res = await confirmTeam(freeloader, tournament.tournament_id, paid.body.data.session_id);
+
+    expect(res.status).toBe(403);
+    expect((await participantOf(freeloader, tournament)).participation_status).toBe('pending');
+  });
+
+  it('rejects a paid session from a different tournament when confirming a team', async () => {
+    const leader = await createUser();
+    const cheap = await teamTournament({ Registration_Amount: '1.00' });
+    const expensive = await teamTournament({ Registration_Amount: '500.00' });
+    const cheapRes = await reserveTeam(leader, cheap.tournament_id);
+    await reserveTeam(leader, expensive.tournament_id);
+    stripeMock.markSessionPaid(cheapRes.body.data.session_id);
+
+    const res = await confirmTeam(leader, expensive.tournament_id, cheapRes.body.data.session_id);
+
+    expect(res.status).toBe(403);
+    expect((await participantOf(leader, expensive)).participation_status).toBe('pending');
+  });
+
+  describe('canceling', () => {
+    const cancelTeam = (user, tournament) =>
+      request(app)
+        .delete(`/api/tournaments/${tournament.tournament_id}/team/cancel`)
+        .set('Authorization', bearer(user));
+
+    async function teamWithMember() {
+      const [leader, member] = await createUsers(2);
+      const tournament = await teamTournament();
+      const reserved = await reserveTeam(leader, tournament.tournament_id, {
+        teamName: 'Alpha',
+        teamPassword: 'secret'
+      });
+      await joinTeam(member, tournament.tournament_id, { teamNumber: 1, teamPassword: 'secret' });
+      return { leader, member, tournament, sessionId: reserved.body.data.session_id };
+    }
+
+    it('lets the leader cancel, clearing the team and expiring the session', async () => {
+      const { leader, tournament, sessionId } = await teamWithMember();
+
+      const res = await cancelTeam(leader, tournament);
+
+      expect(res.status).toBe(200);
+      expect(await occupiedSlots(tournament.tournament_id)).toHaveLength(0);
+      expect(await TournamentParticipant.count()).toBe(0);
+      expect((await TournamentPayment.findOne()).payment_details.status).toBe('canceled');
+      expect(() => stripeMock.markSessionPaid(sessionId)).toThrow(/Only open sessions/);
+
+      const slot = await TournamentTeam.findOne({
+        where: { Tournament_Id: tournament.tournament_id, Team_Number: 1 }
+      });
+      expect(slot.Team_Name).toBeNull();
+      expect(slot.Team_Password).toBeNull();
+    });
+
+    it('forbids a non-leader from canceling, leaving the team intact', async () => {
+      const { member, leader, tournament } = await teamWithMember();
+
+      const res = await cancelTeam(member, tournament);
+
+      expect(res.status).toBe(403);
+      const [slot] = await occupiedSlots(tournament.tournament_id);
+      expect(slot.team_members).toEqual([
+        { id: leader.user_id, leader: true },
+        { id: member.user_id, leader: false }
+      ]);
+      expect(await TournamentParticipant.count()).toBe(2);
+    });
+
+    it('refuses to cancel a paid session', async () => {
+      const { leader, tournament, sessionId } = await teamWithMember();
+      stripeMock.markSessionPaid(sessionId);
+
+      const res = await cancelTeam(leader, tournament);
+
+      expect(res.status).toBe(409);
+      expect(await occupiedSlots(tournament.tournament_id)).toHaveLength(1);
+    });
+
+    it('refuses to cancel a confirmed team', async () => {
+      const { leader, tournament, sessionId } = await teamWithMember();
+      stripeMock.markSessionPaid(sessionId);
+      await confirmTeam(leader, tournament.tournament_id, sessionId);
+
+      const res = await cancelTeam(leader, tournament);
+
+      expect(res.status).toBe(409);
+      expect(await occupiedSlots(tournament.tournament_id)).toHaveLength(1);
+      expect(await TournamentParticipant.count()).toBe(2);
+    });
+
+    it('keeps the team and returns 503 when Stripe fails', async () => {
+      const { leader, tournament } = await teamWithMember();
+      stripeMock.client.checkout.sessions.retrieve.mockRejectedValueOnce(new Error('Stripe is down'));
+
+      const res = await cancelTeam(leader, tournament);
+
+      expect(res.status).toBe(503);
+      expect(await occupiedSlots(tournament.tournament_id)).toHaveLength(1);
+    });
+
+    it('returns 404 when the user has no reservation', async () => {
+      const user = await createUser();
+      const tournament = await teamTournament();
+
+      const res = await cancelTeam(user, tournament);
+
+      expect(res.status).toBe(404);
+    });
   });
 
   describe('joining', () => {

@@ -67,6 +67,54 @@ describe('POST /api/tournaments/create', () => {
   });
 });
 
+describe('fields organizers may not set', () => {
+  const restricted = {
+    is_approved: true,
+    Platform_fee: '0.00',
+    Organizer_fee: '999.00',
+    tournament_banners: ['someone-elses-file.png'],
+    main_banner_key: 'someone-elses-file.png'
+  };
+
+  function expectRestrictedFieldsUnset(tournament) {
+    expect(tournament.is_approved).toBe(false);
+    expect(tournament.Platform_fee).toBeNull();
+    expect(tournament.Organizer_fee).toBeNull();
+    expect(tournament.tournament_banners).toEqual([]);
+    expect(tournament.main_banner_key).toBeNull();
+  }
+
+  it('ignores them on create, and records the real creator', async () => {
+    const creator = await createUser();
+    const other = await createUser();
+
+    const res = await createViaApi(creator, { ...restricted, listed_by: other.user_id });
+
+    expect(res.status).toBe(201);
+    const tournament = await Tournament.findOne();
+    expectRestrictedFieldsUnset(tournament);
+    expect(tournament.listed_by).toBe(creator.user_id);
+  });
+
+  it('ignores them on update, while applying allowed fields', async () => {
+    const creator = await createUser();
+    const other = await createUser();
+    await createViaApi(creator);
+    const tournament = await Tournament.findOne();
+
+    const res = await request(app)
+      .patch(`/api/tournaments/${tournament.tournament_id}`)
+      .set('Authorization', bearer(creator))
+      .send({ ...restricted, listed_by: other.user_id, tournament_Name: 'Renamed' });
+
+    expect(res.status).toBe(200);
+    await tournament.reload();
+    expectRestrictedFieldsUnset(tournament);
+    expect(tournament.listed_by).toBe(creator.user_id);
+    expect(tournament.tournament_Name).toBe('Renamed');
+  });
+});
+
 describe('PATCH /api/tournaments/:id/status', () => {
   const setStatus = (user, id, status) =>
     request(app)
@@ -108,17 +156,71 @@ describe('PATCH /api/tournaments/:id/status', () => {
 });
 
 describe('PATCH /api/tournaments/:id/approve', () => {
-  // KNOWN BUG: approveTournament only checks that the caller is logged in.
-  // it.failing goes red once the bug is fixed; then change it to a plain it().
-  it.failing('forbids a user who is not an admin', async () => {
+  const approve = (user, tournament) =>
+    request(app)
+      .patch(`/api/tournaments/${tournament.tournament_id}/approve`)
+      .set('Authorization', bearer(user))
+      .send({ isApproved: true });
+
+  const unapproved = () => createTournament({ Status: 'Coming Soon', is_approved: false });
+
+  afterEach(() => {
+    delete process.env.PLATFORM_ADMIN_USER_IDS;
+  });
+
+  it('lets a platform admin approve and opens registration', async () => {
+    const admin = await createUser();
+    const other = await createUser();
+    process.env.PLATFORM_ADMIN_USER_IDS = `${other.user_id}, ${admin.user_id}`;
+    const tournament = await unapproved();
+
+    const res = await approve(admin, tournament);
+
+    expect(res.status).toBe(200);
+    await tournament.reload();
+    expect(tournament.is_approved).toBe(true);
+    expect(tournament.Status).toBe('Accepting Registrations');
+  });
+
+  it('forbids a user who is not a platform admin', async () => {
+    const admin = await createUser();
     const outsider = await createUser();
-    const tournament = await createTournament({ Status: 'Coming Soon', is_approved: false });
+    process.env.PLATFORM_ADMIN_USER_IDS = admin.user_id;
+    const tournament = await unapproved();
+
+    const res = await approve(outsider, tournament);
+
+    expect(res.status).toBe(403);
+    await tournament.reload();
+    expect(tournament.is_approved).toBe(false);
+  });
+
+  it('forbids the tournament creator from approving their own tournament', async () => {
+    const creator = await createUser();
+    await createViaApi(creator);
+    const tournament = await Tournament.findOne();
+
+    const res = await approve(creator, tournament);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('forbids everyone when no platform admins are configured', async () => {
+    const user = await createUser();
+    const tournament = await unapproved();
+
+    const res = await approve(user, tournament);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('requires authentication', async () => {
+    const tournament = await unapproved();
 
     const res = await request(app)
       .patch(`/api/tournaments/${tournament.tournament_id}/approve`)
-      .set('Authorization', bearer(outsider))
       .send({ isApproved: true });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
   });
 });

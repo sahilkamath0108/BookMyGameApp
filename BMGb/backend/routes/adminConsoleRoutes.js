@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate, requireSuperAdmin } = require('../middleware/auth');
+const { authenticate, requirePlatformAdmin } = require('../middleware/auth');
 const adminConsoleController = require('../controllers/adminConsoleController');
 const { checkTournamentAdminAccess } = require('../middleware/adminMiddleware');
 const { cleanupExpiredReservations } = require('../utils/cronService');
@@ -19,7 +19,7 @@ router.get('/tournament/:tournamentId/stats', authenticate, adminConsoleControll
 router.get('/participant/:participantId/team', authenticate, adminConsoleController.getParticipantTeam);
 
 // Add a new route for manually triggering the cleanup job
-router.post('/cleanup-expired-reservations', authenticate, requireSuperAdmin, async (req, res) => {
+router.post('/cleanup-expired-reservations', authenticate, requirePlatformAdmin, async (req, res) => {
   try {
     const result = await cleanupExpiredReservations();
     

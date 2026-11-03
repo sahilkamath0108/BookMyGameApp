@@ -24,12 +24,97 @@ const {
   sendRoomDetailsEmail
 } = require("../utils/emailService");
 const { uploadToS3, deleteFromS3, getKeyFromUrl, getPresignedUrl } = require('../utils/s3Service');
+const { closeCheckoutSession } = require('../utils/stripeCheckout');
+const { pickFields } = require('../utils/validation');
+
+// What organizers may set. Approval, fees, and ownership are set only by the server.
+const TOURNAMENT_EDITABLE_FIELDS = [
+  'tournament_Name',
+  'Tournament_Code',
+  'GameName',
+  'Status',
+  'Tournament_Prize_Pool',
+  'Room_Code',
+  'Room_Password',
+  'Is_Private',
+  'Is_Sponsored',
+  'Is_Offline',
+  'Is_Bracket_Competition',
+  'Registration_Amount',
+  'Currency',
+  'Prize_Amount',
+  'Prize_Distribution',
+  'Payout_Structure',
+  'Registration_Start_Time',
+  'Registration_End_Time',
+  'Event_Start_Time',
+  'Event_End_Time',
+  'Team_Size_Limit',
+  'Max_Players_Allowed',
+  'Min_Players_Required'
+];
+
+// Closes a user's open checkout sessions before canceling, so a canceled slot cannot
+// be paid for. Returns an error result if the reservation must not be canceled.
+const closePendingCheckoutSessions = async (userId, tournamentId, paymentType) => {
+  const pendingPayments = await TournamentPayment.findAll({
+    where: {
+      user_id: userId,
+      tournament_id: tournamentId,
+      payment_details: {
+        status: 'pending',
+        payment_type: paymentType
+      }
+    }
+  });
+
+  for (const payment of pendingPayments) {
+    let closed;
+    try {
+      closed = await closeCheckoutSession(payment.payment_details.session_id);
+    } catch (error) {
+      console.error(`Could not close checkout session for payment ${payment.payment_id}:`, error);
+      return {
+        statusCode: 503,
+        message: "Could not cancel the payment session. Please try again."
+      };
+    }
+    if (!closed) {
+      return {
+        statusCode: 409,
+        message: "This reservation has already been paid and cannot be canceled."
+      };
+    }
+  }
+  return null;
+};
+
+// A paid session only proves payment for the user and tournament it was created for.
+const sessionMatchesReservation = (session, userId, tournamentId) =>
+  session.metadata?.user_id === userId &&
+  session.metadata?.tournament_id === tournamentId;
+
+// A session that already confirmed a registration cannot pay for another one.
+const isSessionAlreadyUsed = async (sessionId, userId, tournamentId, transaction) => {
+  const completedPayment = await TournamentPayment.findOne({
+    where: {
+      user_id: userId,
+      tournament_id: tournamentId,
+      payment_details: {
+        session_id: sessionId,
+        status: 'completed'
+      }
+    },
+    transaction
+  });
+  return Boolean(completedPayment);
+};
 
 // Create tournament
 const createTournament = async (req, res) => {
   try {
     const userId = req.user.user_id;
-    const tournamentData = req.body;
+    const tournamentData = pickFields(req.body, TOURNAMENT_EDITABLE_FIELDS);
     let mainBannerKey = null;
 
     // Validate dates before proceeding (removed registration start time constraint)
@@ -1149,6 +1234,12 @@ const confirmSlotPayment = async (req, res) => {
         .json({ status: "fail", message: "Payment not completed" });
     }
 
+    if (!sessionMatchesReservation(session, userId, tournamentId)) {
+      return res
+        .status(403)
+        .json({ status: "fail", message: "This payment does not belong to this reservation" });
+    }
+
     // Start transaction
     const result = await sequelize.transaction(async (t) => {
       // 1. Find the team slot for this user
@@ -1183,6 +1274,14 @@ const confirmSlotPayment = async (req, res) => {
           error: true,
           statusCode: 404,
           message: "No pending reservation found for this user."
+        };
+      }
+
+      if (await isSessionAlreadyUsed(sessionId, userId, tournamentId, t)) {
+        return {
+          error: true,
+          statusCode: 409,
+          message: "This payment has already been used for a registration."
         };
       }
 
@@ -1915,6 +2014,12 @@ const confirmSinglePlayerSlot = async (req, res) => {
         .json({ status: "fail", message: "Payment not completed" });
     }
 
+    if (!sessionMatchesReservation(session, userId, tournamentId)) {
+      return res
+        .status(403)
+        .json({ status: "fail", message: "This payment does not belong to this reservation" });
+    }
+
     // Start transaction
     const result = await sequelize.transaction(async (t) => {
       // 1. Find the tournament to verify it still exists and is accepting registrations
@@ -1967,6 +2072,14 @@ const confirmSinglePlayerSlot = async (req, res) => {
           error: true,
           statusCode: 404,
           message: "No pending reservation found for this user."
+        };
+      }
+
+      if (await isSessionAlreadyUsed(sessionId, userId, tournamentId, t)) {
+        return {
+          error: true,
+          statusCode: 409,
+          message: "This payment has already been used for a registration."
         };
       }
 
@@ -2129,7 +2242,7 @@ const updateTournament = async (req, res) => {
   try {
     const { tournamentId } = req.params;
     const requestingUserId = req.user.user_id;
-    const updateData = req.body;
+    const updateData = pickFields(req.body, TOURNAMENT_EDITABLE_FIELDS);
     let mainBannerUrl = null;
     let mainBannerKey = null;
 
@@ -2439,8 +2552,14 @@ const cancelTeamReservation = async (req, res) => {
   try {
     const { tournamentId } = req.params;
     const userId = req.user.user_id;
-    
-    
+
+    const closeError = await closePendingCheckoutSessions(userId, tournamentId, 'team_registration');
+    if (closeError) {
+      return res.status(closeError.statusCode).json({
+        status: "fail",
+        message: closeError.message
+      });
+    }
 
     const result = await sequelize.transaction(async (t) => {
       // Find all team slots for this tournament first
@@ -2504,29 +2623,55 @@ const cancelTeamReservation = async (req, res) => {
         };
       }
 
-      // Find the pending participation record
-      const participationRecord = await TournamentParticipant.findOne({
+      // Canceling removes the whole team, so only its leader may do it
+      const isTeamLeader = teamSlot.team_members.some(member =>
+        typeof member === 'object' && member !== null &&
+        member.id === userId && member.leader === true
+      );
+
+      if (!isTeamLeader) {
+        return {
+          error: true,
+          statusCode: 403,
+          message: "Only the team leader can cancel a team reservation. Team members can leave the team instead."
+        };
+      }
+
+      // A paid registration is not a reservation
+      const confirmedRecord = await TournamentParticipant.findOne({
         where: {
           user_id: userId,
           tournament_id: tournamentId,
-          participation_status: "pending"
+          participation_status: { [Op.in]: ["confirmed", "soft_confirmed"] }
         },
         transaction: t
       });
 
-      if (participationRecord) {
-        
-        // Delete the participation record
-        await participationRecord.destroy({ transaction: t });
-        
-      } else {
-        
+      if (confirmedRecord) {
+        return {
+          error: true,
+          statusCode: 409,
+          message: "This registration is confirmed and cannot be canceled."
+        };
       }
 
+      // Remove the leader and any members who already joined
+      const memberIds = teamSlot.team_members.map(member =>
+        typeof member === 'object' && member !== null ? member.id : member
+      );
+      await TournamentParticipant.destroy({
+        where: {
+          tournament_id: tournamentId,
+          user_id: memberIds
+        },
+        transaction: t
+      });
+
       // Reset the team slot
-      
+
       teamSlot.team_members = [];
       teamSlot.Team_Password = null;
+      teamSlot.Team_Name = null;
       await teamSlot.save({ transaction: t });
       
 
@@ -2588,10 +2733,26 @@ const cancelSinglePlayerReservation = async (req, res) => {
   try {
     const { tournamentId } = req.params;
     const userId = req.user.user_id;
-    
-    
+
+    const closeError = await closePendingCheckoutSessions(userId, tournamentId, 'player_registration');
+    if (closeError) {
+      return res.status(closeError.statusCode).json({
+        status: "fail",
+        message: closeError.message
+      });
+    }
 
     const result = await sequelize.transaction(async (t) => {
+      // This endpoint empties the whole slot, which would remove a team's other members
+      const tournament = await Tournament.findByPk(tournamentId, { transaction: t });
+      if (tournament && tournament.Team_Size_Limit > 1) {
+        return {
+          error: true,
+          statusCode: 400,
+          message: "This is a team tournament. Use the team cancel endpoint instead."
+        };
+      }
+
       // Find all team slots for this tournament first
       const teamSlots = await TournamentTeam.findAll({
         where: {
@@ -2629,6 +2790,24 @@ const cancelSinglePlayerReservation = async (req, res) => {
           error: true,
           statusCode: 404,
           message: "No player reservation found for this user"
+        };
+      }
+
+      // A paid registration is not a reservation
+      const confirmedRecord = await TournamentParticipant.findOne({
+        where: {
+          user_id: userId,
+          tournament_id: tournamentId,
+          participation_status: { [Op.in]: ["confirmed", "soft_confirmed"] }
+        },
+        transaction: t
+      });
+
+      if (confirmedRecord) {
+        return {
+          error: true,
+          statusCode: 409,
+          message: "This registration is confirmed and cannot be canceled."
         };
       }
 
